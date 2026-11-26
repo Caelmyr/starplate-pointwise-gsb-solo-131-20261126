@@ -35,12 +35,16 @@ const state = {
   output: null, catalog: [], notes: [], saved: [], skyGrid: null,
   showGrid: false, recentAperture: null, drag: null,
   temporaryBox: null, temporaryLine: null, measured: null,
+  contaminationAdoption: null, contaminationRow: null,
   stretch: {mode: "asinh", palette: "gray", low_pct: 1, high_pct: 99.8, strength: 6, invert: false},
 };
+// Read-only debugging/automation handle for the current worksheet state.
+window.starplateState = state;
 
 let frameTicket = 0;
 let pointTicket = 0;
 let toolTicket = 0;
+let contaminationTicket = 0;
 let toastTimer;
 let colorUrl = null;
 
@@ -247,6 +251,7 @@ async function openFrame(key) {
   state.frame = found;
   state.view = full(found);
   state.line = state.point = state.recentAperture = state.output = state.measured = null;
+  state.contaminationAdoption = state.contaminationRow = null;
   state.vertices = []; state.catalog = []; state.notes = []; state.saved = []; state.skyGrid = null;
   state.showGrid = false;
   state.meta = null;
@@ -500,6 +505,167 @@ async function pickHistogram(bin, histogram, measuredParams) {
     paint();
   } catch (error) { toolStatus(error.message, true); }
 }
+
+function renderContaminationRowCard(report, message = "") {
+  let card = el("#contamination-row-card");
+  if (!card) {
+    card = newNode("section", undefined, "contamination-card");
+    card.id = "contamination-row-card";
+    card.dataset.testid = "contamination-row-result";
+    const result = el("#result");
+    if (result) result.prepend(card);
+  }
+  card.replaceChildren();
+  if (!state.contaminationAdoption) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  card.append(newNode("h4", "Adopted shoulder band · 采用两肩带"));
+  if (message && !report) card.append(newNode("p", message, "quiet"));
+  if (!report) {
+    card.append(newNode("p", "Click an original row in the profile statistics. 点击剖面统计表格中的一行。", "quiet"));
+    return;
+  }
+  const value = report.excess_electrons;
+  const blank = value === null || value === undefined || !Number.isFinite(value);
+  const valueNode = newNode(
+    "strong",
+    blank ? "Excess e⁻: —（留空）" : `Excess above row sky: ${ff(value, 8)} e⁻`,
+    blank ? "contam-value blank" : "contam-value",
+  );
+  valueNode.id = "contamination-excess-electrons";
+  valueNode.dataset.testid = "contamination-excess-electrons";
+  valueNode.dataset.blank = String(blank);
+  if (blank) valueNode.setAttribute("aria-label", "not available");
+  card.append(valueNode);
+  card.append(newNode("span", `Original detector row ${report.row}`, "quiet"));
+  if (report.reason) {
+    const reason = report.reason === "row_undecided"
+      ? "Row is undecided: peak/shoulder ownership is not evidenced."
+      : report.reason === "insufficient_sky_evidence"
+        ? "Sky needs at least three contiguous clean original samples on both sides without crossing a bright line."
+        : pretty(report.reason);
+    card.append(newNode("p", reason, "quiet"));
+  } else if (report.sky_level_electrons_per_pixel !== null && report.sky_level_electrons_per_pixel !== undefined) {
+    card.append(newNode(
+      "p",
+      `L shoulder ${report.left_x}, R shoulder ${report.right_x}; ${report.band_pixel_count} band pixels; sky ${ff(report.sky_level_electrons_per_pixel, 7)} e⁻/px; clean runs L${report.left_sky?.run_length} R${report.right_sky?.run_length}.`,
+      "quiet",
+    ));
+  }
+}
+
+function updateContaminationReadout(report, message = "") {
+  const node = el("#contamination-readout");
+  renderContaminationRowCard(report, message);
+  if (!state.contaminationAdoption) {
+    node.className = "contamination-readout";
+    node.replaceChildren(newNode("span", "Adopt a satellite contamination band, then click an original profile row. The excess electron value stays blank for undecided rows or insufficient two-sided sky."));
+    return;
+  }
+  node.className = "contamination-readout adopted";
+  node.replaceChildren();
+  const ad = state.contaminationAdoption;
+  node.append(newNode("strong", `采用带 · Adopted band: ${ad.judged_row_count} judged / ${ad.undecided_row_count} undecided rows`));
+  if (message) node.append(newNode("span", message));
+  if (!report) {
+    node.append(newNode("span", "Click a row in the Line profile statistics. 点击剖面统计中的一条原图行。"));
+    return;
+  }
+  state.contaminationRow = report;
+  paint();
+  const value = report.excess_electrons;
+  const headline = value === null || value === undefined || !Number.isFinite(value)
+    ? `Row ${report.row} · excess e⁻: —（留空 / blank）`
+    : `Row ${report.row} · contamination above row sky = ${ff(value, 8)} e⁻`;
+  node.append(newNode("strong", headline, value === null || value === undefined ? "contam-value blank" : "contam-value"));
+  if (report.reason) {
+    const reason = report.reason === "row_undecided"
+      ? "This row is undecided because shoulder ownership at the crossing is not evidenced."
+      : report.reason === "insufficient_sky_evidence"
+        ? "Each side needs at least three contiguous clean sky samples before another bright line; evidence was insufficient."
+        : pretty(report.reason);
+    node.append(newNode("span", reason, "quiet"));
+  } else if (report.sky_level_electrons_per_pixel !== null) {
+    node.append(newNode("span", `Shoulders ${report.left_x}…${report.right_x} · ${report.band_pixel_count} px · sky ${ff(report.sky_level_electrons_per_pixel, 7)} e⁻/px · L/R clean run ${report.left_sky?.run_length}/${report.right_sky?.run_length}`));
+  }
+}
+
+function adoptContamination(adoption) {
+  if (!adoption) return;
+  state.contaminationAdoption = adoption;
+  state.contaminationRow = null;
+  updateContaminationReadout(null);
+  paint();
+  tell("Contamination band adopted. Click an original row in the profile table.");
+}
+
+async function profileRowContamination(sample) {
+  const rowY = Number.isInteger(sample.original_y) ? sample.original_y : Math.round(sample.y);
+  if (!state.contaminationAdoption) {
+    updateContaminationReadout(null, "Run and adopt the contamination band first; the original profile remains available.");
+    return;
+  }
+  const ticket = ++contaminationTicket;
+  state.contaminationRow = null;
+  updateContaminationReadout(null, `Reading original row ${rowY} between the adopted shoulders…`);
+  try {
+    const payload = await api(framePath("/measure/contamination-row"), action({
+      adoption: state.contaminationAdoption,
+      row: rowY,
+    }));
+    if (ticket !== contaminationTicket) return;
+    updateContaminationReadout(payload.result);
+  } catch (error) {
+    if (ticket !== contaminationTicket) return;
+    const blank = {row: rowY, excess_electrons: null, reason: error.message};
+    updateContaminationReadout(blank);
+    toolStatus(error.message, true);
+  }
+}
+
+function contaminationResult(result) {
+  const adoption = result.adoption || result.band;
+  if (!adoption) return [newNode("p", "No contamination adoption was returned.", "quiet")];
+  const items = [
+    metricGrid([
+      ["Judged rows · 已判", adoption.judged_row_count],
+      ["Undecided · 未判", adoption.undecided_row_count],
+      ["Band pixels", adoption.contaminated_pixel_count],
+      ["Adoptable", adoption.adoptable ? "yes" : "no"],
+    ]),
+    newNode("p", adoption.adoptable
+      ? "Shoulders and undecided rows are marked on the original image. Adopt this same band before choosing a profile row."
+      : "The anchors do not yet have two evidenced endpoint rows. Adjust the line to peaks where both shoulders are separated.", adoption.adoptable ? "quiet" : "operation-status error"),
+  ];
+  const adopt = makeButton("采用此污染带 · Adopt this band", () => adoptContamination(adoption), "accent");
+  adopt.id = "adopt-contamination-band";
+  adopt.disabled = !adoption.adoptable;
+  items.push(adopt);
+  const rows = adoption.rows.map((row) => ({
+    row: row.row,
+    status: row.judged ? "judged · 已判" : "undecided · 未判",
+    peak_x: row.peak_x,
+    left_x: row.left_x,
+    right_x: row.right_x,
+    left_drop: row.left_drop_electrons,
+    right_drop: row.right_drop_electrons,
+    reason: row.reason || "",
+  }));
+  const table = dataTable(
+    rows,
+    ["row", "status", "peak_x", "left_x", "right_x", ["left_drop", "L drop e−"], ["right_drop", "R drop e−"], "reason"],
+    (row) => {
+      const fullRow = adoption.rows.find((item) => item.row === row.row);
+      if (fullRow?.peak) selectPoint(fullRow.peak, false);
+      if (state.contaminationAdoption) profileRowContamination({original_y: row.row, y: row.row});
+      else tell("Adopt the band to read this row’s excess sky electrons.");
+    },
+  );
+  items.push(table);
+  return items;
+}
 function renderResult(operation, result, readonlyKey = null) {
   const container = el("#result");
   const items = [newNode("h3", `${tools[operation]?.[0] || pretty(operation)} result`)];
@@ -524,9 +690,19 @@ function renderResult(operation, result, readonlyKey = null) {
   } else if (operation === "profile") {
     items.push(metricGrid([["Original length", `${ff(result.length)} px`], ["Samples", result.samples.length]]));
     const chart = makeChart(result.samples, ["value"], "Original intensity along the line");
-    chart.addEventListener("click", (event) => sourceRow(result.samples[chart.indexAt(event)]));
+    const chooseProfileSample = (sample) => {
+      sourceRow(sample);
+      profileRowContamination(sample);
+    };
+    chart.addEventListener("click", (event) => chooseProfileSample(result.samples[chart.indexAt(event)]));
     items.push(chart);
-    items.push(dataTable(result.samples, ["distance", "x", "y", "value", "valid"], sourceRow));
+    items.push(dataTable(result.samples, ["distance", "x", "y", "value", "valid"], chooseProfileSample));
+    items.push(makeButton("Generate contamination band from these endpoints · 用此线生成污染带", () => {
+      setTool("contamination-band");
+      runTool();
+    }));
+  } else if (operation === "contamination-band" || operation === "contamination" || operation === "satellite-contamination" || operation === "satellite-band" || operation === "streak-band") {
+    items.push(...contaminationResult(result));
   } else if (operation === "aperture-curve") {
     items.push(makeChart(result.measurements, ["flux"], "Flux across aperture radii"));
     items.push(dataTable(result.measurements, ["radius", "flux", "relative_flux", "coverage"]));
@@ -560,6 +736,9 @@ function renderResult(operation, result, readonlyKey = null) {
   }
   items.push(detailsResult(result));
   container.replaceChildren(...items);
+  if (operation === "profile" && state.contaminationAdoption) {
+    renderContaminationRowCard(state.contaminationRow);
+  }
 }
 function generalOutput(result) {
   const scalars = Object.entries(result).filter(([, val]) => val === null || ["number", "boolean", "string"].includes(typeof val));
@@ -606,6 +785,11 @@ async function runTool() {
     el("#retain-output").hidden = route !== "derive";
     toolStatus(route === "derive" ? "Result prepared. Keep it to open a separate image." : "");
     renderResult(tool, result);
+    if (tool === "contamination-band" && result.adoption?.adoptable) {
+      state.contaminationAdoption = result.adoption;
+      state.contaminationRow = null;
+      updateContaminationReadout(null, "Recommended band selected. Confirm with “Adopt this band”, then click a profile row.");
+    }
     paint();
   } catch (error) {
     toolStatus(error.message, true);
@@ -655,7 +839,7 @@ function setTool(name) {
   state.tool = name;
   state.measured = null;
   configureTool();
-  if (name === "profile" && !state.line) selectMode("line");
+  if (["profile", "contamination-band"].includes(name) && !state.line) selectMode("line");
   setTab("measure");
 }
 async function loadSaved(key) {
@@ -673,6 +857,10 @@ async function loadSaved(key) {
     if (item.parameters.point) selectPoint(item.parameters.point, false);
     configureTool(item.parameters, true);
     renderResult(item.operation, item.result, item.key);
+    if (item.operation.startsWith("contamination") && item.result?.adoption) {
+      state.contaminationAdoption = item.result.adoption;
+      updateContaminationReadout(null, "Saved adoption restored. Click a profile row.");
+    }
     toolStatus(`Saved measurement · ${item.title}`);
     setTab("measure");
     paint();
@@ -797,6 +985,7 @@ function hook() {
   el("#full-box").addEventListener("click", () => { if (state.frame) setBox(full(state.frame)); });
   el("#clear-overlay").addEventListener("click", () => {
     state.point = state.line = state.output = state.recentAperture = state.measured = null;
+    state.contaminationAdoption = state.contaminationRow = null;
     state.catalog = []; state.vertices = [];
     inputNumber("#point-x", null); inputNumber("#point-y", null);
     el("#retain-output").hidden = true;

@@ -56,6 +56,13 @@ export const groups = {
   },
   "Pixels and coordinates": {
     "probe": ["Pixel probe", "Read original intensity, nearby pixels and celestial coordinates where available.", [n("radius", "Neighborhood radius", 1, 1), n("patch", "Grid half-size", 4, 1)], "point"],
+    "contamination-band": ["Satellite contamination band · 卫星污染带", "Use Line to join the two still-separate faint-trail peaks, then find evidenced peaks and left/right original shoulders on each detector row. Crossing rows with doubtful shoulders are left undecided.", [
+      n("drop_electrons", "Minimum peak-to-shoulder drop (e−)", 40, 1),
+      n("row_search_radius", "Peak search radius (px)", 10, 1),
+      n("max_half_width", "Maximum shoulder half-width (px)", 18, 1),
+      n("trace_tolerance", "Trace tolerance (px)", 3, .1),
+      n("min_sky_samples", "Clean sky samples per side", 3, 1),
+    ], "line"],
     "profile": ["Line profile", "Plot original brightness along a line. A wider ribbon averages around its axis.", [...line, n("width", "Ribbon width (odd px)", 1, 1)], "line"],
     "strip": ["Strip statistics", "Compare mean and median brightness along and across an offset ribbon.", [...line, n("half_width", "Strip half-width", 7, 1)], "line"],
     "sky-distance": ["Sky distance", "Measure detector and celestial separation between line endpoints.", [], "line"],

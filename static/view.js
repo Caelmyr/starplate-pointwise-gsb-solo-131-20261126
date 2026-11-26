@@ -76,6 +76,70 @@ export function plotImage(overlay, state) {
   state.vertices.forEach(([x, y]) => mark(x, y, colors.box, 2.8));
   if (state.temporaryBox) box(state.temporaryBox, "#fff2c0");
   if (state.temporaryLine) line(state.temporaryLine, "#fff2c0", 2);
+
+  const contaminationAdoption = state.contaminationAdoption
+    || (typeof state.output?.operation === "string" && state.output.operation.includes("contamination")
+      ? state.output.result?.adoption : null);
+  if (contaminationAdoption) {
+    const polygon = (points, fillStyle, strokeStyle) => {
+      if (!Array.isArray(points) || points.length < 3) return;
+      ctx.beginPath();
+      points.forEach(([x, y], index) => {
+        const [a, b] = screen(x, y);
+        if (index) ctx.lineTo(a, b); else ctx.moveTo(a, b);
+      });
+      ctx.closePath();
+      if (fillStyle) { ctx.fillStyle = fillStyle; ctx.fill(); }
+      if (strokeStyle) { stroke(strokeStyle, 1.2, [4, 3]); ctx.stroke(); }
+    };
+    const square = (x, y, color, radius = 3) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const [a, b] = screen(x, y);
+      ctx.fillStyle = color;
+      ctx.fillRect(a - radius, b - radius, radius * 2, radius * 2);
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(a - radius, b - radius, radius * 2, radius * 2);
+    };
+
+    for (const poly of contaminationAdoption.band_polygons || []) {
+      polygon(poly, "rgba(125,244,212,0.13)", "rgba(125,244,212,0.55)");
+    }
+    line(contaminationAdoption.centerline || [], "#7df4d4", 2.1);
+    line(contaminationAdoption.left_shoulders || [], "#ffc857", 1.7);
+    line(contaminationAdoption.right_shoulders || [], "#ffc857", 1.7);
+    for (const [x, y] of contaminationAdoption.left_shoulders || []) square(x, y, "#ffb454", 2.8);
+    for (const [x, y] of contaminationAdoption.right_shoulders || []) square(x, y, "#ffd166", 2.8);
+    for (const [x, y] of contaminationAdoption.peak_path || []) mark(x, y, "#7df4d4", 2.4);
+
+    const showUnknownLabels = (contaminationAdoption.undecided?.length || 0) <= 28;
+    for (const item of contaminationAdoption.undecided || []) {
+      const point = item.point || [item.expected_x, item.row];
+      mark(point[0], point[1], "#ff7b72", 4.2, showUnknownLabels ? "?" : "");
+    }
+    for (const point of [contaminationAdoption.start, contaminationAdoption.end]) {
+      if (point) {
+        mark(point[0], point[1], "#ffffff", 6.2);
+        mark(point[0], point[1], "#7df4d4", 3.2);
+      }
+    }
+
+    const selected = state.contaminationRow;
+    if (selected && Number.isFinite(selected.row)) {
+      const record = contaminationAdoption.rows?.find((row) => row.row === selected.row);
+      if (selected.eligible && Number.isFinite(selected.left_x) && Number.isFinite(selected.right_x)) {
+        line([[selected.left_x, selected.row], [selected.right_x, selected.row]], "#fff2a8", 4.5);
+        square(selected.left_x, selected.row, "#fff2a8", 4.2);
+        square(selected.right_x, selected.row, "#fff2a8", 4.2);
+        for (const x of selected.left_sky?.coordinates || []) square(x, selected.row, "#9ec5ff", 2.4);
+        for (const x of selected.right_sky?.coordinates || []) square(x, selected.row, "#9ec5ff", 2.4);
+      } else if (record) {
+        const x = record.expected_x ?? record.peak_x;
+        if (Number.isFinite(x)) mark(x, selected.row, "#fff2a8", 7.5, "?");
+      }
+    }
+  }
+
   for (const note of state.notes) mark(note.x, note.y, colors.note, 4.5, note.title);
   const candidate = state.output;
   if (candidate) {

@@ -6,6 +6,7 @@ from werkzeug.exceptions import BadRequest
 from .demo import ARCHIVE
 from .errors import RequestError
 from .framecheck import overlap_polyline, route_compare
+from .contamination import handle_contamination_band, handle_contamination_row
 from .frames import original_file_name, read_plane, safe_header_rows, source_digest
 from .geometry import Box
 from .inputs import Fields
@@ -149,6 +150,21 @@ def lineage(key):
 def measure(key, operation):
     frame = store().open(key)
     return run_measurement(frame, operation, body_fields())
+
+
+@api.post("/frames/<key>/contamination-band")
+@api.post("/frames/<key>/contamination")
+@api.post("/frames/<key>/satellite-band")
+def contamination_band_action(key):
+    frame = store().open(key)
+    return {"result": handle_contamination_band(frame, body_fields())}
+
+
+@api.post("/frames/<key>/contamination-row")
+@api.post("/frames/<key>/contamination-flux")
+def contamination_row_action(key):
+    frame = store().open(key)
+    return {"result": handle_contamination_row(frame, body_fields())}
 
 
 @api.post("/frames/<key>/derive/<operation>")

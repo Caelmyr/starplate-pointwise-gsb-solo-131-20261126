@@ -3,6 +3,7 @@ import numpy as np
 
 from .analysis_tools import TOOLS
 from .background import BackgroundSettings, background_point, estimate_background
+from .contamination import handle_contamination_band, handle_contamination_row
 from .contours import isolines, isophote_regions
 from .errors import RequestError
 from .frames import celestial_wcs
@@ -56,7 +57,21 @@ def handle_profile(frame, fields):
     width = fields.integer("width", 1, 1, 15)
     if width % 2 == 0:
         raise RequestError("Profile width must be an odd number of pixels.", "width")
-    return line_profile(frame, start, end, spacing, mode, width)
+    result = line_profile(frame, start, end, spacing, mode, width)
+    adoption = fields.raw("contamination_adoption", fields.raw("adoption"))
+    if isinstance(adoption, dict):
+        from .contamination import estimate_noise_sigma, measure_adoption_row
+
+        noise_sigma = estimate_noise_sigma(frame.pixels)
+        for sample in result["samples"]:
+            row_report = measure_adoption_row(
+                frame.pixels, adoption, sample["original_y"], noise_sigma=noise_sigma
+            )
+            sample["contamination_excess_electrons"] = row_report["excess_electrons"]
+            sample["contamination_eligible"] = row_report["eligible"]
+            sample["contamination_reason"] = row_report["reason"]
+            sample["contamination"] = row_report
+    return result
 
 
 def handle_aperture(frame, fields):
@@ -150,6 +165,18 @@ OPERATIONS = {
     "histogram-bin": handle_histogram_bin,
     "compare": handle_compare,
     "profile": handle_profile,
+    "contamination-band": handle_contamination_band,
+    "contamination": handle_contamination_band,
+    "satellite": handle_contamination_band,
+    "satellite-trail": handle_contamination_band,
+    "satellite-contamination": handle_contamination_band,
+    "satellite-band": handle_contamination_band,
+    "streak": handle_contamination_band,
+    "streak-band": handle_contamination_band,
+    "contamination-row": handle_contamination_row,
+    "contamination-flux": handle_contamination_row,
+    "satellite-row": handle_contamination_row,
+    "satellite-excess": handle_contamination_row,
     "aperture": handle_aperture,
     "aperture-curve": handle_curve,
     "stars": handle_stars,
