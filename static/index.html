@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>StarPlate · Astronomical image workbench</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">✳</span><div><strong>StarPlate</strong><span>Observation workbench</span></div></div>
+    <div id="frame-heading" class="frame-heading" aria-live="polite">Opening workspace…</div>
+    <div class="top-actions">
+      <button type="button" id="help-toggle" class="subtle">Guide</button>
+      <button type="button" id="open-upload" class="accent">＋ Import image</button>
+    </div>
+  </header>
+  <main class="desktop-layout">
+    <aside class="library">
+      <section>
+        <div class="section-head"><h2>Image library</h2><span id="library-count" class="quiet"></span></div>
+        <div class="section-sub">Archive · workspace</div>
+        <div id="frame-list" class="frame-list"></div>
+      </section>
+      <section>
+        <div class="section-head"><h2>Marks</h2><button type="button" class="small" id="new-note" title="Mark the active original point">＋</button></div>
+        <div id="note-list" class="rail-list"></div>
+      </section>
+      <section>
+        <div class="section-head"><h2>Saved measurements</h2><button type="button" class="small" id="save-result" title="Save the current measurement">＋</button></div>
+        <div id="saved-list" class="rail-list"></div>
+      </section>
+    </aside>
+    <section class="view-column" aria-label="Original detector image">
+      <div class="view-toolbar">
+        <div class="button-group" aria-label="Image selection mode">
+          <button type="button" data-mode="point" aria-pressed="true">⌖ Point</button>
+          <button type="button" data-mode="box" aria-pressed="false">□ Box</button>
+          <button type="button" data-mode="line" aria-pressed="false">╱ Line</button>
+          <button type="button" data-mode="polygon" aria-pressed="false">◇ Polygon</button>
+        </div>
+        <div class="button-group compact" aria-label="View controls">
+          <button type="button" id="zoom-in" title="Zoom to the current inspection box">Zoom to box</button>
+          <button type="button" id="zoom-out" title="Show the entire detector">Fit image</button>
+          <button type="button" id="wcs-grid" aria-pressed="false" title="Show celestial coordinate grid">Sky grid</button>
+        </div>
+      </div>
+      <div id="view-stage" class="view-stage">
+        <div id="image-plane" class="image-plane" hidden>
+          <img id="science-image" alt="Stretched astronomy image in original detector orientation" draggable="false">
+          <canvas id="overlay" aria-label="Selection overlay"></canvas>
+        </div>
+        <p id="view-empty" class="view-empty">Open an archive image or import an exposure.</p>
+      </div>
+      <div class="view-readout"><span id="pointer-readout">Move over the image to see original coordinates</span><span id="selection-readout"></span></div>
+      <div class="below-view">
+        <section class="strip-card coordinates">
+          <div class="section-head"><h2>Inspection box</h2><button type="button" id="full-box" class="small">Full frame</button></div>
+          <form id="box-form" class="field-grid four">
+            <label>X<input id="box-x" name="x" type="number" min="0" required></label>
+            <label>Y<input id="box-y" name="y" type="number" min="0" required></label>
+            <label>Width<input id="box-width" name="width" type="number" min="1" required></label>
+            <label>Height<input id="box-height" name="height" type="number" min="1" required></label>
+            <button type="submit" class="small">Set box</button>
+          </form>
+        </section>
+        <section class="strip-card">
+          <div class="section-head"><h2>Original point</h2><button type="button" id="clear-overlay" class="small">Clear marks</button></div>
+          <form id="point-form" class="field-grid">
+            <label>X<input id="point-x" name="x" type="number" step="any" required></label>
+            <label>Y<input id="point-y" name="y" type="number" step="any" required></label>
+            <button type="submit" class="small">Read point</button>
+          </form>
+          <div id="quick-probe" class="quiet quick">Pixel readings stay in the original frame units.</div>
+        </section>
+      </div>
+    </section>
+    <aside class="inspector" aria-label="Image processing">
+      <div class="tabs" role="tablist" aria-label="Inspector">
+        <button type="button" data-tab="measure" role="tab" aria-selected="true">Measure</button>
+        <button type="button" data-tab="display" role="tab" aria-selected="false">Display</button>
+        <button type="button" data-tab="frame" role="tab" aria-selected="false">Frame</button>
+      </div>
+      <section id="pane-measure" class="tab-panel">
+        <label class="tool-picker">Tool<select id="tool-select"></select></label>
+        <p id="tool-description" class="tool-description"></p>
+        <form id="tool-form">
+          <div id="tool-fields" class="field-grid"></div>
+          <div class="tool-actions">
+            <button type="submit" id="run-tool" class="accent">Run measurement</button>
+            <button type="button" id="retain-output" hidden>Keep image</button>
+          </div>
+        </form>
+        <div id="operation-status" role="status" class="operation-status"></div>
+        <div id="result" class="result" aria-live="polite"></div>
+      </section>
+      <section id="pane-display" class="tab-panel" hidden>
+        <form id="display-form">
+          <div class="field-grid">
+            <label>Stretch<select name="mode"><option value="asinh">Asinh</option><option value="linear">Linear</option><option value="sqrt">Square root</option><option value="log">Logarithmic</option><option value="gamma">Gamma</option></select></label>
+            <label>Palette<select name="palette"><option value="gray">Grayscale</option><option value="night">Night</option><option value="amber">Amber</option><option value="balance">Blue / orange</option></select></label>
+            <label>Low percentile<input type="number" name="low_pct" min="0" max="100" step=".1" value="1"></label>
+            <label>High percentile<input type="number" name="high_pct" min="0" max="100" step=".1" value="99.8"></label>
+            <label>Fixed low<input type="number" name="low" step="any" placeholder="Auto"></label>
+            <label>Fixed high<input type="number" name="high" step="any" placeholder="Auto"></label>
+            <label>Strength<input type="number" name="strength" min=".1" max="100" step=".1" value="6"></label>
+            <label class="check"><input type="checkbox" name="invert">Invert display</label>
+          </div>
+          <button type="submit" class="accent">Apply display</button>
+        </form>
+        <div id="display-result" class="result"></div>
+      </section>
+      <section id="pane-frame" class="tab-panel" hidden>
+        <div id="frame-metadata" class="frame-metadata"></div>
+        <h2>Export inspection box</h2>
+        <div class="button-group">
+          <button type="button" data-export="fits">Scientific FITS</button>
+          <button type="button" data-export="png">Preview PNG</button>
+          <button type="button" data-export="bundle">Evidence ZIP</button>
+        </div>
+        <div class="tool-actions row-gap">
+          <button type="button" id="trace-source">Read input sources</button>
+          <button type="button" id="fingerprint">Fingerprint box</button>
+        </div>
+        <div id="frame-result" class="result"></div>
+        <details class="header-fold"><summary>FITS header cards</summary><div id="header-cards"></div></details>
+      </section>
+    </aside>
+  </main>
+  <dialog id="upload-dialog">
+    <form id="upload-form" class="dialog-form">
+      <div class="section-head"><h2>Import image</h2><button class="small" type="button" data-close="upload-dialog">Close</button></div>
+      <p>Choose a two-dimensional FITS plane or a PNG, JPEG or TIFF image. Maximum transfer 46 MB.</p>
+      <label>Image<input type="file" name="image" accept=".fit,.fits,.fts,.gz,.bz2,.png,.jpeg,.jpg,.tif,.tiff" required></label>
+      <label>Display name<input name="title" type="text" placeholder="Use file name" maxlength="100"></label>
+      <label>FITS HDU<input name="hdu" type="number" min="0" max="63" placeholder="Automatic"></label>
+      <div class="tool-actions"><button type="submit" class="accent">Import</button><button type="button" id="inspect-upload">Inspect HDUs</button></div>
+      <div id="upload-feedback" role="status"></div>
+    </form>
+  </dialog>
+  <dialog id="note-dialog">
+    <form id="note-form" class="dialog-form">
+      <div class="section-head"><h2>Mark original point</h2><button class="small" type="button" data-close="note-dialog">Close</button></div>
+      <label>Title<input name="title" maxlength="80" required></label>
+      <label>Observation<textarea name="text" rows="3" maxlength="600"></textarea></label>
+      <button type="submit" class="accent">Save mark</button>
+    </form>
+  </dialog>
+  <dialog id="save-dialog">
+    <form id="save-form" class="dialog-form">
+      <div class="section-head"><h2>Save measurement</h2><button class="small" type="button" data-close="save-dialog">Close</button></div>
+      <label>Title<input name="title" maxlength="100" required></label>
+      <button type="submit" class="accent">Save</button>
+    </form>
+  </dialog>
+  <dialog id="help-dialog" class="guide">
+    <div class="dialog-form">
+      <div class="section-head"><h2>Working with an exposure</h2><button class="small" type="button" data-close="help-dialog">Close</button></div>
+      <ol>
+        <li>Choose an SDSS exposure or import a two-dimensional image. FITS file rows are shown in array order.</li>
+        <li>Click the image to read a point, drag a box to scope tools, or drag a line to measure along it. Polygon mode adds vertices one click at a time.</li>
+        <li>Use Measure for star catalogs, aperture flux, profiles and derived exposures. Select a marked source before measuring its aperture.</li>
+        <li>Save an observation or export the inspection box from Frame. Scientific output preserves source values and missing pixels.</li>
+      </ol>
+      <p>The Display tab controls appearance. Changing the stretch leaves original intensity and measurements unchanged.</p>
+    </div>
+  </dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+name: solo134-starplate
+services:
+  web:
+    build:
+      context: .
+      args:
+        STARPLATE_PIP_INDEX: ${STARPLATE_PIP_INDEX:-https://pypi.org/simple}
+    image: solo134-starplate:1.0
+    init: true
+    network_mode: bridge
+    ports:
+      - "127.0.0.1:${STARPLATE_PORT:-19935}:8080"
+    volumes:
+      - work:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 4s
+      retries: 8
+volumes:
+  work:
