@@ -102,6 +102,16 @@ export function plotImage(overlay, state) {
     }
     if (operation === "mask") result.edges?.forEach(([x, y]) => mark(x, y, "#ffac99", 1.8));
     if (operation === "histogram-bin") result.samples?.forEach(({x, y}) => mark(x, y, "#ffddac", 2));
+    if (operation === "seam") {
+      if (result.guide_line) line(result.guide_line, "#b9c8e2", 1, [6, 5]);
+      if (result.seam?.length > 1) {
+        const stride = Math.max(1, Math.ceil(result.seam.length / 900));
+        const drawn = result.seam.filter((_, index) => index % stride === 0);
+        if (drawn.at(-1) !== result.seam.at(-1)) drawn.push(result.seam.at(-1));
+        line(drawn, "#ffcf6e", 2.1);
+      }
+      result.endpoints && Object.values(result.endpoints).forEach(([x, y]) => mark(x, y, "#ffcf6e", 4));
+    }
     if (operation === "world" && result.in_frame) mark(result.x, result.y, "#90dcff", 7, "ICRS");
     if (operation === "region-flux" && result.shape === "ellipse") {
       const [[x, y], [a, b], angle] = result.points;

@@ -33,6 +33,7 @@ Open `http://127.0.0.1:19935/`. The start script accepts `PORT` and `STARPLATE_D
 | Mask and filter | Mask unusable pixels, local median, band and edge filters | Separate processed image with the unaltered source still available |
 | Camera calibration | Dark and flat correction, master calibration | Derived plane and reference coverage statistics |
 | Align exposures | Align and combine, aligned residual check | Registration, overlap, residual evidence and a derived image |
+| Seam mosaic | Seam mosaic | One admissible seam between two drafted endpoints, source-traced composite |
 | Render color | RGB composite | Color preview and downloadable PNG using named input channels |
 | Retain and export | Marks, saved measurements, frame exports | SQLite records, scientific FITS, PNG or evidence ZIP |
 
@@ -41,6 +42,8 @@ Coordinates are zero-based pixel centers in file row order. A box starts at its 
 Supported inputs are two-dimensional numeric FITS image HDUs, including gzip and bzip2 files, and single-page PNG, TIFF and JPEG. RGB raster imports are converted to channel-weighted intensity and transparent pixels become unavailable. FITS data tables and image cubes are excluded from the import list. The maximum transfer is 46 MiB, decompressed FITS limit is 128 MiB, and image size is at most 8.5 million pixels with no edge above 8192. Individual tools have lower interactive region limits.
 
 Stellar detection is a connected-island measurement and can group overlapping sources. Aperture error is an estimate from local scatter and optional gain. The sky tools are robust local or smooth mesh estimates and the shape tools assume simple profiles. Aperture accuracy depends on centering, valid support and surrounding sources. The WCS display is computed from celestial metadata when the FITS file supplies it. Resampling between exposures is an approximate pixel-level operation and does not perform flux-conserving area integration.
+
+The seam mosaic builds on the same WCS (or shift/anchor) registration. You draft the join line by marking one endpoint on each vertical edge of the inspection box; the tool then chooses one seam row per column that connects the two endpoints, changes rows by at most one between adjacent columns, and stays within 18 pixels (configurable) above and below the drafted line. A seam position is admissible only when the seam row together with its immediate rows above and below carry complete finite samples below the brightness limit in both frames. Dynamic programming returns the single seam that best compromises between deviation from the drafted line and the original-value jump at the frame switch; a clear notice is returned when no admissible seam exists. In the retained composite the reference frame fills rows above the seam while the aligned companion fills the seam row and everything below, and any adopted pixel without a valid source sample is left empty. Reading input sources on the retained mosaic reports which frame supplied each pixel, its position on that original frame and the value actually read.
 
 ## Archive credit
 

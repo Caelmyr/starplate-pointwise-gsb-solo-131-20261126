@@ -105,6 +105,15 @@ export const groups = {
       ...alignment, select("blend", "Result", ["mean", "difference", "maximum", ["reference", "Aligned companion"]]),
       select("normalize", "Match levels", ["none", "offset", "affine"]), n("alpha", "Companion weight", .5), check("require_pair", "Only keep paired pixels"),
     ], "", "derive"],
+    "seam": ["Seam mosaic", "After WCS alignment, find one admissible seam between two line endpoints on the inspection box edges. Above the seam keep the reference frame; the seam row and below keep the companion. Pixels without a valid adopted sample stay empty.", [
+      image("partner", "Companion image"),
+      select("alignment", "Alignment", ["wcs", "shift", "phase", "anchors"]),
+      n("shift_x", "Shift X", 0), n("shift_y", "Shift Y", 0),
+      point("anchor_1", "Image anchor 1 (x, y)"), point("anchor_2", "Image anchor 2 (x, y)"),
+      point("moving_1", "Companion anchor 1"), point("moving_2", "Companion anchor 2"),
+      select("interpolation", "Interpolation", ["linear", "nearest"]), n("support", "Minimum source support", .999),
+      n("brightness_limit", "Brightness limit", 20), n("band", "Search band (px up/down)", 18, 1),
+    ], "line", "derive"],
     "pair": ["Aligned residual check", "Test the agreement and original support of an aligned pair before combining.", [
       ...alignment, n("cell", "Cell size", 64, 1), n("min_joint", "Min paired samples", 30, 1),
       check("level_match", "Match background offset", true),

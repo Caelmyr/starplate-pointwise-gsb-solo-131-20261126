@@ -9,11 +9,12 @@ from .calibration import CalibrationSettings, camera_correct, explain_correction
 from .errors import RequestError
 from .filtering import FilterSettings, compute_filter, filter_point
 from .frames import ImagePlane, crop_header, encode_header
-from .geometry import Box, point_in_frame
+from .geometry import Box, finite_or_none, point_in_frame
 from .inputs import Fields
 from .limits import MAX_REGION_PIXELS
 from .masking import MaskSettings, bad_pixel_mask, mask_boundaries, masked_pixels, polygon_points
 from .registration import Alignment, Blend, alignment_point, registration_result
+from .seam import SeamSettings, seam_report
 from .store import json_text
 
 
@@ -148,6 +149,53 @@ def registration_output(store, frame, fields, box):
     )
 
 
+def seam_output(store, frame, fields, box):
+    partner_key = fields.text("partner", minimum=1, maximum=72)
+    partner = store.open(partner_key)
+    settings = SeamSettings.from_fields(fields)
+    report = seam_report(frame, partner, box, settings)
+    composite = report.pop("composite")
+    aligned = report.pop("aligned")
+    report.pop("mapping")
+    seam_rows = [int(y - box.y) for _x, y in report["seam"]]
+    parameters = {
+        **settings.payload(),
+        "partner": partner_key,
+        "seam_rows": seam_rows,
+    }
+    if fields.raw("point") is not None:
+        point = fields.point("point")
+        if box.covers(point):
+            report["probe"] = seam_point_probe(frame, partner, box, settings, aligned, seam_rows, point)
+    return DerivedPlane(
+        composite, box, report, "Seam mosaic", "seam",
+        (frame.record.key, partner_key), parameters, (box.x, box.y),
+    )
+
+
+def seam_point_probe(reference, partner, box, settings, aligned, seam_rows, point):
+    """Read both candidate samples at one inspection point before retaining."""
+    x, y = point
+    if not box.covers(point):
+        return None
+    local_x = int(round(x - box.x))
+    local_y = int(round(y - box.y))
+    uses_partner = local_y >= seam_rows[local_x]
+    pixel_x, pixel_y = int(round(x)), int(round(y))
+    reference_value = (
+        finite_or_none(float(reference.pixels[pixel_y, pixel_x]))
+        if reference.box.covers(point) else None
+    )
+    partner_value = finite_or_none(float(aligned[local_y, local_x]))
+    return {
+        "point": [x, y],
+        "source": "partner" if uses_partner else "reference",
+        "reference_value": reference_value,
+        "partner_value": partner_value,
+        "seam_row": int(seam_rows[local_x] + box.y),
+    }
+
+
 def master_output(store, frame, fields, box):
     keys = fields.list("references", minimum=1, maximum=7)
     frames = [frame, *(store.open(key) for key in keys)]
@@ -179,7 +227,8 @@ def make_derived(store, frame, operation, fields, box):
         "sky": background_output, "detail": filter_output, "mask": mask_output,
         "crop": crop_output, "multiscale": multiscale_output,
     }
-    with_store = {"calibrate": camera_output, "register": registration_output, "master": master_output}
+    with_store = {"calibrate": camera_output, "register": registration_output,
+                  "master": master_output, "seam": seam_output}
     if operation in direct:
         return direct[operation](frame, fields, box)
     if operation in with_store:
@@ -204,6 +253,11 @@ def retain_derived(store, frame, output, title):
     header["ORIGHDU"] = frame.record.hdu
     header["OPERATOR"] = "StarPlate"
     header["DERIVED"] = output.operation
+    if output.operation == "seam":
+        header["SEAMLIM"] = output.parameters["brightness_limit"], "Seam brightness limit"
+        header["SEAMBAND"] = output.parameters["band_radius"], "Seam search band (px)"
+        header["SEAMREF"] = output.parents[0], "Frame above the seam"
+        header["SEAMPART"] = output.parents[1], "Frame on and below the seam"
     lineage = {
         "parents": list(output.parents), "operation": output.operation,
         "region_on_parent": output.region.payload(), "origin": list(output.pixel_origin),

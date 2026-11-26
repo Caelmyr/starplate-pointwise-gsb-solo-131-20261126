@@ -127,6 +127,9 @@ def parent_point_report(workspace, parent, point, lineage, index):
 def read_parent_samples(workspace, frame, point):
     point_in_frame(point, frame.shape)
     lineage = frame.record.lineage
+    if lineage.get("operation") == "seam":
+        from .seam import seam_source_report
+        return seam_source_report(workspace, frame, point, lineage)
     x_origin, y_origin = lineage.get("origin", (0, 0))
     parent_point = (point[0] + x_origin, point[1] + y_origin)
     reports = []

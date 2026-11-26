@@ -546,6 +546,29 @@ function renderResult(operation, result, readonlyKey = null) {
     items.push(makeChart(result.fitted_pixels, ["original", "model"], "Original pixels and fitted profile"));
   } else if (operation === "rings") {
     items.push(dataTable(result.bands, ["inner", "outer", "support", "pixels", "median", "net_sum"]));
+  } else if (operation === "seam") {
+    items.push(metricGrid([
+      ["Max deviation from drafted line", `${ff(result.deviation.max_px)} px`],
+      ["Mean deviation", `${ff(result.deviation.mean_px)} px`],
+      ["Search band", `±${result.search_band_radius} px`],
+      ["Mean switch jump", result.jump.mean], ["Max switch jump", result.jump.max],
+      ["Reference pixels", result.samples.reference_pixels],
+      ["Companion pixels", result.samples.partner_pixels],
+      ["Empty pixels", result.samples.empty_pixels],
+      ["Brightness limit", result.brightness_limit],
+    ]));
+    items.push(newNode("p",
+      `Seam fixed at ${result.seam.length} columns; each column differs from its neighbour by at most one row. Retain it to open the mosaic and trace its source pixels.`,
+      "quiet"));
+    if (result.probe) {
+      items.push(metricGrid([
+        ["Probe point", pos(result.probe.point)],
+        ["Adopted source", result.probe.source],
+        ["Reference reading", result.probe.reference_value],
+        ["Companion reading", result.probe.partner_value],
+        ["Seam row at column", result.probe.seam_row],
+      ]));
+    }
   } else {
     items.push(...generalOutput(result));
   }
@@ -655,7 +678,7 @@ function setTool(name) {
   state.tool = name;
   state.measured = null;
   configureTool();
-  if (name === "profile" && !state.line) selectMode("line");
+  if (["profile", "seam"].includes(name) && !state.line) selectMode("line");
   setTab("measure");
 }
 async function loadSaved(key) {
@@ -743,8 +766,32 @@ async function frameReport(type) {
     const data = await api(framePath(`/${type}`), action(params));
     const target = el("#frame-result");
     if (type === "fingerprint") target.replaceChildren(...generalOutput(data.result), detailsResult(data.result));
+    else if (data.operation === "seam") target.replaceChildren(...seamSourceNodes(data), detailsResult(data));
     else target.replaceChildren(dataTable([data.result, ...data.direct_parent_samples], ["key", "point", "value", "available"]), detailsResult(data));
   } catch (error) { tell(error.message, true); }
+}
+function seamSourceNodes(data) {
+  const adopted = data.adopted_source;
+  const switchRow = data.switch_row;
+  const nodes = [
+    metricGrid([
+      ["Adopted frame", adopted.key],
+      ["Role", adopted.role],
+      ["Original frame pixel", adopted.pixel ? pos(adopted.pixel) : "—"],
+      ["Mapped coordinate", adopted.point ? pos(adopted.point) : "—"],
+      ["Value actually read", adopted.value],
+      ["Sample available", adopted.available],
+      ["Interpolation support", adopted.interpolation_support ?? "—"],
+      ["Seam switch [column, row]", switchRow ? pos(switchRow) : "—"],
+      ["Unit", adopted.unit],
+    ]),
+  ];
+  if (!adopted.available) {
+    nodes.push(newNode("p", "The adopted source has no valid sample here, so the mosaic pixel is left empty.", "quiet"));
+  }
+  const rows = [data.result, ...data.direct_parent_samples];
+  nodes.push(dataTable(rows, ["key", "role", "adopted", "point", "pixel", "value", "available"]));
+  return nodes;
 }
 async function upload(verify) {
   const form = el("#upload-form");
